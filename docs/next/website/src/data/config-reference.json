@@ -782,6 +782,18 @@
           "description": "Focus the last focused pane across workspaces and tabs. Unset by default."
         },
         {
+          "key": "keys.last_tab",
+          "type": "keybinding",
+          "default": "unset",
+          "description": "Focus the last focused tab, like tmux last-window. Unset by default."
+        },
+        {
+          "key": "keys.send_prefix",
+          "type": "keybinding",
+          "default": "unset",
+          "description": "Send the primary prefix key to the focused pane, like tmux send-prefix. While unset, pressing the prefix twice sends it; once set, the doubled prefix can be bound to another action such as keys.last_tab."
+        },
+        {
           "key": "keys.split_vertical",
           "type": "keybinding",
           "default": "\"prefix+v\"",

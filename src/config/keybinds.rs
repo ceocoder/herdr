@@ -393,6 +393,8 @@ pub struct Keybinds {
     pub cycle_pane_next: ActionKeybinds,
     pub cycle_pane_previous: ActionKeybinds,
     pub last_pane: ActionKeybinds,
+    pub last_tab: ActionKeybinds,
+    pub send_prefix: ActionKeybinds,
     pub split_vertical: ActionKeybinds,
     pub split_horizontal: ActionKeybinds,
     pub close_pane: ActionKeybinds,
@@ -432,6 +434,9 @@ struct RegisteredBinding {
 struct BindingRegistry {
     prefix_combos: Vec<KeyCombo>,
     prefix_source: BindingSource,
+    /// A configured `send_prefix` takes over the literal prefix, so the
+    /// doubled prefix may be bound to an action.
+    doubled_prefix_bindable: bool,
     direct: std::collections::HashMap<KeyCombo, RegisteredBinding>,
     prefix: std::collections::HashMap<KeyCombo, RegisteredBinding>,
 }
@@ -444,6 +449,7 @@ impl BindingRegistry {
         Self {
             prefix_combos: normalized,
             prefix_source,
+            doubled_prefix_bindable: false,
             direct: std::collections::HashMap::new(),
             prefix: std::collections::HashMap::new(),
         }
@@ -469,7 +475,7 @@ impl BindingRegistry {
 
     fn prefix_rhs_is_reserved(&self, combo: KeyCombo) -> bool {
         let combo = normalize_key_combo(combo);
-        self.prefix_combos.contains(&combo)
+        !self.doubled_prefix_bindable && self.prefix_combos.contains(&combo)
     }
 
     fn conflict(&self, binding: &ResolvedBinding) -> Option<&RegisteredBinding> {
@@ -513,6 +519,7 @@ impl Config {
             BindingSource::Default
         };
         let mut registry = BindingRegistry::new(prefix_keys.clone(), prefix_source);
+        registry.doubled_prefix_bindable = self.keys.send_prefix.has_values();
         registry.reserve_prefix_keys("keys.prefix", prefix_source);
         let mut navigate_registry = BindingRegistry::new(prefix_keys.clone(), prefix_source);
         navigate_registry.reserve_prefix_keys("keys.prefix", prefix_source);
@@ -576,6 +583,8 @@ impl Config {
             cycle_pane_next: empty_action!(),
             cycle_pane_previous: empty_action!(),
             last_pane: empty_action!(),
+            last_tab: empty_action!(),
+            send_prefix: empty_action!(),
             split_vertical: empty_action!(),
             split_horizontal: empty_action!(),
             close_pane: empty_action!(),
@@ -722,6 +731,8 @@ impl Config {
             apply_action!(keybinds.swap_pane_up, swap_pane_up, source);
             apply_action!(keybinds.swap_pane_right, swap_pane_right, source);
             apply_action!(keybinds.last_pane, last_pane, source);
+            apply_action!(keybinds.last_tab, last_tab, source);
+            apply_action!(keybinds.send_prefix, send_prefix, source);
             apply_action!(keybinds.cycle_pane_next, cycle_pane_next, source);
             apply_action!(keybinds.cycle_pane_previous, cycle_pane_previous, source);
             apply_action!(keybinds.split_vertical, split_vertical, source);
@@ -1088,7 +1099,7 @@ fn reject_binding(
             return true;
         }
         let diag = format!(
-            "reserved keybinding: {field} = {:?} uses keys.prefix as the prefix-mode key; pressing the prefix twice sends a literal prefix key, so this binding is disabled",
+            "reserved keybinding: {field} = {:?} uses keys.prefix as the prefix-mode key; pressing the prefix twice sends a literal prefix key unless keys.send_prefix is set, so this binding is disabled",
             binding.label
         );
         warn!(message = %diag, "config diagnostic");
@@ -1710,6 +1721,8 @@ next_tab = "prefix+n"
     fn back_and_forth_keybinds_are_unset_by_default() {
         let kb = Config::default().keybinds();
         assert!(kb.last_pane.bindings.is_empty());
+        assert!(kb.last_tab.bindings.is_empty());
+        assert!(kb.send_prefix.bindings.is_empty());
     }
 
     #[test]
@@ -1968,6 +1981,32 @@ help = "prefix+ctrl+b"
         )
         .unwrap();
         assert!(!config.keybinds().help.bindings.is_empty());
+    }
+
+    #[test]
+    fn send_prefix_frees_the_doubled_prefix_for_another_binding() {
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+prefix = "backtick"
+send_prefix = "prefix+~"
+last_tab = "prefix+backtick"
+"#,
+        )
+        .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
+        let kb = config.keybinds();
+        assert_eq!(
+            binding_triggers(&kb.last_tab),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('`'),
+                KeyModifiers::empty()
+            ))]
+        );
+        assert!(kb.send_prefix.matches_prefix_key(
+            &TerminalKey::new(KeyCode::Char('~'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('~' as u32)
+        ));
     }
 
     #[test]

@@ -691,22 +691,33 @@ impl ClientShellState {
                 } else {
                     ClientShellMode::Terminal
                 };
-                if self.config.keybinds.matches_prefix(key) {
+                // With send_prefix bound, the doubled prefix is an ordinary
+                // prefix binding; otherwise it sends the literal prefix.
+                let send_prefix_bound = !self
+                    .config
+                    .keybinds
+                    .keybinds
+                    .send_prefix
+                    .bindings
+                    .is_empty();
+                if !send_prefix_bound && self.config.keybinds.matches_prefix(key) {
                     self.mode = return_mode;
                     outcome.repaint = true;
                     return self.focused_pane_id().map(ClientInputTarget::Pane);
                 }
-                if key.code == KeyCode::Esc {
-                    self.mode = return_mode;
-                    outcome.repaint = true;
-                    return None;
-                }
+                // Bindings resolve before Esc so an explicit `prefix+esc`
+                // works; an unbound Esc still cancels prefix mode.
                 if let Some(binding) =
                     crate::input::resolve_prefix_binding(&self.config.keybinds.keybinds, key)
                 {
                     self.mode = return_mode;
                     outcome.repaint = true;
                     self.record_binding(binding, outcome);
+                    return None;
+                }
+                if key.code == KeyCode::Esc {
+                    self.mode = return_mode;
+                    outcome.repaint = true;
                     return None;
                 }
                 self.mode = return_mode;
@@ -1180,6 +1191,21 @@ impl ClientShellState {
         if let Some(event) = ClientPaneInputEvent::from_terminal_key(key) {
             super::push_target_event(target, event, outcome);
         }
+    }
+
+    pub(super) fn push_literal_prefix(&self, outcome: &mut ClientShellInput) {
+        let (Some(pane_id), Some((code, modifiers))) = (
+            self.focused_pane_id(),
+            self.config.keybinds.primary_prefix(),
+        ) else {
+            return;
+        };
+        // Synthesized keys have no physical release, so send one to avoid a
+        // stuck held key in pane apps that track releases.
+        let press = crate::input::TerminalKey::new(code, modifiers);
+        let release = press.clone().with_kind(KeyEventKind::Release);
+        self.push_pane_key(ClientInputTarget::Pane(pane_id.clone()), press, outcome);
+        self.push_pane_key(ClientInputTarget::Pane(pane_id), release, outcome);
     }
 
     fn push_focused_pane_event(&self, event: ClientPaneInputEvent, outcome: &mut ClientShellInput) {

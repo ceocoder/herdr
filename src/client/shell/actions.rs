@@ -10,6 +10,9 @@ impl ClientShellState {
             crate::input::KeybindMatch::Action(crate::input::KeybindAction::Detach) => {
                 outcome.detach = true;
             }
+            crate::input::KeybindMatch::Action(crate::input::KeybindAction::SendPrefix) => {
+                self.push_literal_prefix(outcome);
+            }
             crate::input::KeybindMatch::Action(crate::input::KeybindAction::ToggleSidebar) => {
                 self.sidebar_collapsed = !self.sidebar_collapsed;
                 self.sidebar_collapsed_manual = true;
@@ -1093,6 +1096,17 @@ impl ClientShellState {
                 }
                 Some(Method::PaneFocus(PaneTarget {
                     pane_id: pane_id.clone(),
+                }))
+            }
+            KeybindAction::LastTab => {
+                let tab_id = self.previous_tab_id.as_ref()?;
+                if Some(tab_id.as_str()) == focused_tab.as_deref()
+                    || !snapshot.tabs.iter().any(|tab| &tab.tab_id == tab_id)
+                {
+                    return None;
+                }
+                Some(Method::TabFocus(TabTarget {
+                    tab_id: tab_id.clone(),
                 }))
             }
             KeybindAction::Zoom => Some(Method::PaneZoom(PaneZoomParams {
